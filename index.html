@@ -13,7 +13,11 @@ body {
   margin: 0;
   font-family: sans-serif;
   background: #f5f5f5;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
+
 header {
   position: sticky;
   top: 0;
@@ -21,27 +25,39 @@ header {
   color: white;
   padding: 12px;
   text-align: center;
+  z-index: 1;
 }
+
 .hidden { display: none; }
+
 input, textarea, select, button {
   width: 100%;
   padding: 10px;
   margin-bottom: 8px;
+  box-sizing: border-box;
+  font-size: 16px;
 }
+
 button {
   border: none;
   border-radius: 6px;
+  cursor: pointer;
 }
+
 ul {
   list-style: none;
   padding: 0;
+  margin: 0;
+  overflow-y: auto;
 }
+
 li {
   background: white;
   margin: 8px;
   padding: 12px;
   border-radius: 8px;
 }
+
 .note-title { font-weight: bold; }
 .note-meta { font-size: 12px; color: #666; }
 
@@ -55,12 +71,54 @@ li {
   height: 56px;
   border-radius: 50%;
   font-size: 28px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .deleteBtn { background: #e74c3c; color: white; }
 .restoreBtn { background: #2ecc71; color: white; }
 .exportBtn { background: #3498db; color: white; }
 .backupBtn { background: #8e44ad; color: white; }
+
+/* 編集画面のレイアウト */
+#editView {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 48px); /* headerを除いた高さ */
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+#titleInput,
+#categoryInput {
+  flex: 0 0 auto;
+}
+
+#contentInput {
+  flex: 1 1 auto;       /* 残りスペースに伸縮 */
+  min-height: 200px;
+  margin-bottom: 8px;
+  resize: vertical;
+}
+
+#editButtons {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#editButtons button {
+  flex: 1 1 auto;
+}
+
+/* 一覧・ゴミ箱のリストはスクロール可能 */
+#noteList, #trashList {
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  padding-bottom: 80px; /* fabやボタンのスペース確保 */
+}
 </style>
 </head>
 <body>
@@ -89,19 +147,19 @@ li {
 <!-- 編集 -->
 <div id="editView" class="hidden">
   <input id="titleInput" placeholder="タイトル">
-
   <select id="categoryInput">
     <option value="仕事">仕事</option>
     <option value="私用">私用</option>
     <option value="その他">その他</option>
   </select>
+  <textarea id="contentInput" placeholder="内容"></textarea>
 
-  <textarea id="contentInput" rows="10" placeholder="内容"></textarea>
-
-  <button onclick="saveNote()">保存</button>
-  <button class="exportBtn" onclick="exportNote()">エクスポート</button>
-  <button class="deleteBtn" onclick="deleteNote()">削除</button>
-  <button onclick="showList()">戻る</button>
+  <div id="editButtons">
+    <button onclick="saveNote()">保存</button>
+    <button class="exportBtn" onclick="exportNote()">エクスポート</button>
+    <button class="deleteBtn" onclick="deleteNote()">削除</button>
+    <button onclick="showList()">戻る</button>
+  </div>
 </div>
 
 <!-- ゴミ箱 -->
@@ -258,7 +316,7 @@ function permanentDelete(id) {
   loadTrash();
 }
 
-/* エクスポート（文字化け完全対策） */
+/* エクスポート（文字化け対策） */
 function exportNote() {
   const format = prompt("txt / md / json", "txt");
   if (!format) return;
