@@ -14,8 +14,6 @@ body {
   font-family: sans-serif;
   background: #f5f5f5;
 }
-
-/* ヘッダー */
 header {
   position: sticky;
   top: 0;
@@ -24,21 +22,18 @@ header {
   padding: 12px;
   text-align: center;
 }
-
-/* 共通 */
 .hidden { display: none; }
-button {
+
+input, textarea, button {
+  width: 100%;
   padding: 10px;
+  margin-bottom: 8px;
+}
+button {
   border: none;
   border-radius: 6px;
 }
-input, textarea {
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 10px;
-}
 
-/* 一覧 */
 #listView ul {
   list-style: none;
   padding: 0;
@@ -49,15 +44,10 @@ input, textarea {
   padding: 12px;
   border-radius: 8px;
 }
-.note-title {
-  font-weight: bold;
-}
-.note-date {
-  font-size: 12px;
-  color: #666;
-}
 
-/* FAB */
+.note-title { font-weight: bold; }
+.note-date { font-size: 12px; color: #666; }
+
 .fab {
   position: fixed;
   bottom: 20px;
@@ -70,12 +60,17 @@ input, textarea {
   font-size: 28px;
 }
 
-/* 編集 */
-#editView {
-  padding: 12px;
+.toolbar button {
+  width: 49%;
 }
-.backBtn {
-  background: #ccc;
+
+.deleteBtn {
+  background: #e74c3c;
+  color: white;
+}
+.restoreBtn {
+  background: #2ecc71;
+  color: white;
 }
 </style>
 </head>
@@ -85,6 +80,8 @@ input, textarea {
 
 <!-- 一覧画面 -->
 <div id="listView">
+  <input id="searchInput" placeholder="検索..." oninput="loadList()">
+  <button onclick="toggleTrash()">🗑 ゴミ箱</button>
   <ul id="noteList"></ul>
   <button class="fab" onclick="newNote()">＋</button>
 </div>
@@ -93,15 +90,26 @@ input, textarea {
 <div id="editView" class="hidden">
   <input id="titleInput" placeholder="タイトル">
   <textarea id="contentInput" rows="10" placeholder="内容"></textarea>
-  <button onclick="saveNote()">保存</button>
-  <button class="backBtn" onclick="showList()">戻る</button>
+
+  <div class="toolbar">
+    <button onclick="saveNote()">保存</button>
+    <button class="deleteBtn" onclick="deleteNote()">削除</button>
+  </div>
+
+  <button onclick="showList()">戻る</button>
+</div>
+
+<!-- ゴミ箱 -->
+<div id="trashView" class="hidden">
+  <ul id="trashList"></ul>
+  <button onclick="toggleTrash()">戻る</button>
 </div>
 
 <script>
 let db;
 let currentId = null;
+let trashMode = false;
 
-/* DB初期化 */
 const req = indexedDB.open("memoDB", 1);
 req.onupgradeneeded = e => {
   const db = e.target.result;
@@ -115,15 +123,25 @@ req.onsuccess = e => {
 /* 画面切替 */
 function showList() {
   editView.classList.add("hidden");
+  trashView.classList.add("hidden");
   listView.classList.remove("hidden");
-  headerTitle.textContent = "メモ一覧";
+  headerTitle.textContent = trashMode ? "ゴミ箱" : "メモ一覧";
   loadList();
 }
 
 function showEdit() {
   listView.classList.add("hidden");
+  trashView.classList.add("hidden");
   editView.classList.remove("hidden");
   headerTitle.textContent = "編集";
+}
+
+function toggleTrash() {
+  trashMode = !trashMode;
+  listView.classList.toggle("hidden");
+  trashView.classList.toggle("hidden");
+  headerTitle.textContent = trashMode ? "ゴミ箱" : "メモ一覧";
+  loadTrash();
 }
 
 /* 新規 */
@@ -142,19 +160,39 @@ function saveNote() {
     id: currentId,
     title: titleInput.value || "（無題）",
     content: contentInput.value,
-    updated: new Date().toLocaleString()
+    updated: new Date().toLocaleString(),
+    deleted: false
   });
   showList();
 }
 
-/* 一覧表示 */
+/* 削除（ゴミ箱へ） */
+function deleteNote() {
+  const tx = db.transaction("notes", "readwrite");
+  const store = tx.objectStore("notes");
+  store.get(currentId).onsuccess = e => {
+    const note = e.target.result;
+    note.deleted = true;
+    store.put(note);
+    showList();
+  };
+}
+
+/* 一覧＋検索 */
 function loadList() {
+  if (trashMode) return;
+
+  const keyword = searchInput.value || "";
   const tx = db.transaction("notes", "readonly");
   const store = tx.objectStore("notes");
-  const req = store.getAll();
-  req.onsuccess = () => {
+  store.getAll().onsuccess = e => {
     noteList.innerHTML = "";
-    req.result
+    e.target.result
+      .filter(n => !n.deleted)
+      .filter(n =>
+        n.title.includes(keyword) ||
+        n.content.includes(keyword)
+      )
       .sort((a,b) => b.id - a.id)
       .forEach(n => {
         const li = document.createElement("li");
@@ -176,11 +214,47 @@ function openNote(note) {
   showEdit();
 }
 
+/* ゴミ箱表示 */
+function loadTrash() {
+  const tx = db.transaction("notes", "readonly");
+  const store = tx.objectStore("notes");
+  store.getAll().onsuccess = e => {
+    trashList.innerHTML = "";
+    e.target.result
+      .filter(n => n.deleted)
+      .forEach(n => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <div class="note-title">${n.title}</div>
+          <button class="restoreBtn" onclick="restore(${n.id})">復元</button>
+          <button class="deleteBtn" onclick="permanentDelete(${n.id})">完全削除</button>
+        `;
+        trashList.appendChild(li);
+      });
+  };
+}
+
+function restore(id) {
+  const tx = db.transaction("notes", "readwrite");
+  const store = tx.objectStore("notes");
+  store.get(id).onsuccess = e => {
+    const note = e.target.result;
+    note.deleted = false;
+    store.put(note);
+    loadTrash();
+  };
+}
+
+function permanentDelete(id) {
+  const tx = db.transaction("notes", "readwrite");
+  tx.objectStore("notes").delete(id);
+  loadTrash();
+}
+
 /* PWA */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js");
 }
 </script>
-
 </body>
 </html>
