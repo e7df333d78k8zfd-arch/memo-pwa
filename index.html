@@ -14,6 +14,20 @@ body {
   font-family: sans-serif;
   background: #f5f5f5;
 }
+
+/* スプラッシュ */
+#splash {
+  position: fixed;
+  inset: 0;
+  background: #667eea;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  z-index: 999;
+}
+
 header {
   position: sticky;
   top: 0;
@@ -22,23 +36,26 @@ header {
   padding: 12px;
   text-align: center;
 }
+
 .hidden { display: none; }
 
-input, textarea, button {
+input, textarea, select, button {
   width: 100%;
   padding: 10px;
   margin-bottom: 8px;
 }
+
 button {
   border: none;
   border-radius: 6px;
 }
 
-#listView ul {
+#listView ul, #trashView ul {
   list-style: none;
   padding: 0;
 }
-#listView li {
+
+li {
   background: white;
   margin: 8px;
   padding: 12px;
@@ -46,7 +63,7 @@ button {
 }
 
 .note-title { font-weight: bold; }
-.note-date { font-size: 12px; color: #666; }
+.note-meta { font-size: 12px; color: #666; }
 
 .fab {
   position: fixed;
@@ -60,42 +77,45 @@ button {
   font-size: 28px;
 }
 
-.toolbar button {
-  width: 49%;
-}
-
-.deleteBtn {
-  background: #e74c3c;
-  color: white;
-}
-.restoreBtn {
-  background: #2ecc71;
-  color: white;
-}
+.deleteBtn { background: #e74c3c; color: white; }
+.restoreBtn { background: #2ecc71; color: white; }
+.exportBtn { background: #3498db; color: white; }
 </style>
 </head>
 <body>
 
+<div id="splash">📝 メモPWA</div>
+
 <header id="headerTitle">メモ一覧</header>
 
-<!-- 一覧画面 -->
+<!-- 一覧 -->
 <div id="listView">
   <input id="searchInput" placeholder="検索..." oninput="loadList()">
+
+  <select id="categoryFilter" onchange="loadList()">
+    <option value="">すべてのカテゴリ</option>
+  </select>
+
   <button onclick="toggleTrash()">🗑 ゴミ箱</button>
   <ul id="noteList"></ul>
   <button class="fab" onclick="newNote()">＋</button>
 </div>
 
-<!-- 編集画面 -->
+<!-- 編集 -->
 <div id="editView" class="hidden">
   <input id="titleInput" placeholder="タイトル">
+
+  <select id="categoryInput">
+    <option value="仕事">仕事</option>
+    <option value="私用">私用</option>
+    <option value="その他">その他</option>
+  </select>
+
   <textarea id="contentInput" rows="10" placeholder="内容"></textarea>
 
-  <div class="toolbar">
-    <button onclick="saveNote()">保存</button>
-    <button class="deleteBtn" onclick="deleteNote()">削除</button>
-  </div>
-
+  <button onclick="saveNote()">保存</button>
+  <button class="exportBtn" onclick="exportNote()">エクスポート</button>
+  <button class="deleteBtn" onclick="deleteNote()">削除</button>
   <button onclick="showList()">戻る</button>
 </div>
 
@@ -110,14 +130,18 @@ let db;
 let currentId = null;
 let trashMode = false;
 
+/* スプラッシュ */
+setTimeout(() => splash.classList.add("hidden"), 800);
+
+/* DB */
 const req = indexedDB.open("memoDB", 1);
 req.onupgradeneeded = e => {
-  const db = e.target.result;
-  db.createObjectStore("notes", { keyPath: "id" });
+  e.target.result.createObjectStore("notes", { keyPath: "id" });
 };
 req.onsuccess = e => {
   db = e.target.result;
   loadList();
+  loadCategories();
 };
 
 /* 画面切替 */
@@ -125,7 +149,7 @@ function showList() {
   editView.classList.add("hidden");
   trashView.classList.add("hidden");
   listView.classList.remove("hidden");
-  headerTitle.textContent = trashMode ? "ゴミ箱" : "メモ一覧";
+  headerTitle.textContent = "メモ一覧";
   loadList();
 }
 
@@ -141,7 +165,7 @@ function toggleTrash() {
   listView.classList.toggle("hidden");
   trashView.classList.toggle("hidden");
   headerTitle.textContent = trashMode ? "ゴミ箱" : "メモ一覧";
-  loadTrash();
+  if (trashMode) loadTrash();
 }
 
 /* 新規 */
@@ -149,24 +173,26 @@ function newNote() {
   currentId = Date.now();
   titleInput.value = "";
   contentInput.value = "";
+  categoryInput.value = "その他";
   showEdit();
 }
 
 /* 保存 */
 function saveNote() {
-  const tx = db.transaction("notes", "readwrite");
-  const store = tx.objectStore("notes");
-  store.put({
-    id: currentId,
-    title: titleInput.value || "（無題）",
-    content: contentInput.value,
-    updated: new Date().toLocaleString(),
-    deleted: false
-  });
+  db.transaction("notes", "readwrite")
+    .objectStore("notes")
+    .put({
+      id: currentId,
+      title: titleInput.value || "（無題）",
+      content: contentInput.value,
+      category: categoryInput.value,
+      updated: new Date().toLocaleString(),
+      deleted: false
+    });
   showList();
 }
 
-/* 削除（ゴミ箱へ） */
+/* 削除 */
 function deleteNote() {
   const tx = db.transaction("notes", "readwrite");
   const store = tx.objectStore("notes");
@@ -178,27 +204,26 @@ function deleteNote() {
   };
 }
 
-/* 一覧＋検索 */
+/* 一覧＋検索＋カテゴリ */
 function loadList() {
   if (trashMode) return;
+  const key = searchInput.value || "";
+  const cat = categoryFilter.value;
 
-  const keyword = searchInput.value || "";
-  const tx = db.transaction("notes", "readonly");
-  const store = tx.objectStore("notes");
-  store.getAll().onsuccess = e => {
+  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
     noteList.innerHTML = "";
     e.target.result
       .filter(n => !n.deleted)
       .filter(n =>
-        n.title.includes(keyword) ||
-        n.content.includes(keyword)
+        (!cat || n.category === cat) &&
+        (n.title.includes(key) || n.content.includes(key))
       )
       .sort((a,b) => b.id - a.id)
       .forEach(n => {
         const li = document.createElement("li");
         li.innerHTML = `
           <div class="note-title">${n.title}</div>
-          <div class="note-date">${n.updated || ""}</div>
+          <div class="note-meta">${n.category} / ${n.updated}</div>
         `;
         li.onclick = () => openNote(n);
         noteList.appendChild(li);
@@ -207,30 +232,41 @@ function loadList() {
 }
 
 /* 編集で開く */
-function openNote(note) {
-  currentId = note.id;
-  titleInput.value = note.title;
-  contentInput.value = note.content;
+function openNote(n) {
+  currentId = n.id;
+  titleInput.value = n.title;
+  contentInput.value = n.content;
+  categoryInput.value = n.category || "その他";
   showEdit();
 }
 
-/* ゴミ箱表示 */
+/* カテゴリ一覧 */
+function loadCategories() {
+  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
+    const cats = [...new Set(e.target.result.map(n => n.category).filter(Boolean))];
+    categoryFilter.innerHTML = '<option value="">すべてのカテゴリ</option>';
+    cats.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c;
+      o.textContent = c;
+      categoryFilter.appendChild(o);
+    });
+  };
+}
+
+/* ゴミ箱 */
 function loadTrash() {
-  const tx = db.transaction("notes", "readonly");
-  const store = tx.objectStore("notes");
-  store.getAll().onsuccess = e => {
+  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
     trashList.innerHTML = "";
-    e.target.result
-      .filter(n => n.deleted)
-      .forEach(n => {
-        const li = document.createElement("li");
-        li.innerHTML = `
-          <div class="note-title">${n.title}</div>
-          <button class="restoreBtn" onclick="restore(${n.id})">復元</button>
-          <button class="deleteBtn" onclick="permanentDelete(${n.id})">完全削除</button>
-        `;
-        trashList.appendChild(li);
-      });
+    e.target.result.filter(n => n.deleted).forEach(n => {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <div class="note-title">${n.title}</div>
+        <button class="restoreBtn" onclick="restore(${n.id})">復元</button>
+        <button class="deleteBtn" onclick="permanentDelete(${n.id})">完全削除</button>
+      `;
+      trashList.appendChild(li);
+    });
   };
 }
 
@@ -238,17 +274,31 @@ function restore(id) {
   const tx = db.transaction("notes", "readwrite");
   const store = tx.objectStore("notes");
   store.get(id).onsuccess = e => {
-    const note = e.target.result;
-    note.deleted = false;
-    store.put(note);
+    const n = e.target.result;
+    n.deleted = false;
+    store.put(n);
     loadTrash();
   };
 }
 
 function permanentDelete(id) {
-  const tx = db.transaction("notes", "readwrite");
-  tx.objectStore("notes").delete(id);
+  db.transaction("notes", "readwrite").objectStore("notes").delete(id);
   loadTrash();
+}
+
+/* エクスポート（1メモ1ファイル） */
+function exportNote() {
+  const data = {
+    title: titleInput.value,
+    category: categoryInput.value,
+    content: contentInput.value,
+    updated: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (data.title || "memo") + ".json";
+  a.click();
 }
 
 /* PWA */
@@ -256,5 +306,6 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js");
 }
 </script>
+
 </body>
 </html>
