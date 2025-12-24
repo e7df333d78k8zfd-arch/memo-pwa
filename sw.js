@@ -1,7 +1,12 @@
 self.addEventListener("install", e => {
   e.waitUntil(
-    caches.open("memo-cache").then(cache =>
-      cache.addAll(["index.html"])
+    caches.open("memo-cache-v2").then(cache =>
+      cache.addAll([
+        "index.html",
+        "manifest.json",
+        "icon-192.png",
+        "icon-512.png"
+      ])
     )
   );
 });
