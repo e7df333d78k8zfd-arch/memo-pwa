@@ -4,76 +4,183 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>メモPWA</title>
+
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#667eea">
+
 <style>
 body {
-  font-family: sans-serif;
   margin: 0;
-  padding: 16px;
+  font-family: sans-serif;
+  background: #f5f5f5;
 }
-input, textarea, button {
-  width: 100%;
-  margin-bottom: 10px;
-  padding: 10px;
-}
-button {
+
+/* ヘッダー */
+header {
+  position: sticky;
+  top: 0;
   background: #667eea;
-  color: #fff;
+  color: white;
+  padding: 12px;
+  text-align: center;
+}
+
+/* 共通 */
+.hidden { display: none; }
+button {
+  padding: 10px;
   border: none;
+  border-radius: 6px;
+}
+input, textarea {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+/* 一覧 */
+#listView ul {
+  list-style: none;
+  padding: 0;
+}
+#listView li {
+  background: white;
+  margin: 8px;
+  padding: 12px;
+  border-radius: 8px;
+}
+.note-title {
+  font-weight: bold;
+}
+.note-date {
+  font-size: 12px;
+  color: #666;
+}
+
+/* FAB */
+.fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #667eea;
+  color: white;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  font-size: 28px;
+}
+
+/* 編集 */
+#editView {
+  padding: 12px;
+}
+.backBtn {
+  background: #ccc;
 }
 </style>
 </head>
 <body>
 
-<h2>📝 メモ</h2>
-<input id="title" placeholder="タイトル">
-<textarea id="content" rows="8" placeholder="内容"></textarea>
-<button onclick="save()">保存</button>
+<header id="headerTitle">メモ一覧</header>
 
-<ul id="list"></ul>
+<!-- 一覧画面 -->
+<div id="listView">
+  <ul id="noteList"></ul>
+  <button class="fab" onclick="newNote()">＋</button>
+</div>
+
+<!-- 編集画面 -->
+<div id="editView" class="hidden">
+  <input id="titleInput" placeholder="タイトル">
+  <textarea id="contentInput" rows="10" placeholder="内容"></textarea>
+  <button onclick="saveNote()">保存</button>
+  <button class="backBtn" onclick="showList()">戻る</button>
+</div>
 
 <script>
 let db;
+let currentId = null;
 
+/* DB初期化 */
 const req = indexedDB.open("memoDB", 1);
 req.onupgradeneeded = e => {
-  db = e.target.result;
+  const db = e.target.result;
   db.createObjectStore("notes", { keyPath: "id" });
 };
 req.onsuccess = e => {
   db = e.target.result;
-  load();
+  loadList();
 };
 
-function save() {
+/* 画面切替 */
+function showList() {
+  editView.classList.add("hidden");
+  listView.classList.remove("hidden");
+  headerTitle.textContent = "メモ一覧";
+  loadList();
+}
+
+function showEdit() {
+  listView.classList.add("hidden");
+  editView.classList.remove("hidden");
+  headerTitle.textContent = "編集";
+}
+
+/* 新規 */
+function newNote() {
+  currentId = Date.now();
+  titleInput.value = "";
+  contentInput.value = "";
+  showEdit();
+}
+
+/* 保存 */
+function saveNote() {
   const tx = db.transaction("notes", "readwrite");
   const store = tx.objectStore("notes");
   store.put({
-    id: Date.now(),
-    title: title.value,
-    content: content.value
+    id: currentId,
+    title: titleInput.value || "（無題）",
+    content: contentInput.value,
+    updated: new Date().toLocaleString()
   });
-  title.value = "";
-  content.value = "";
-  load();
+  showList();
 }
 
-function load() {
+/* 一覧表示 */
+function loadList() {
   const tx = db.transaction("notes", "readonly");
   const store = tx.objectStore("notes");
   const req = store.getAll();
   req.onsuccess = () => {
-    list.innerHTML = req.result.map(n =>
-      `<li>${n.title}</li>`
-    ).join("");
+    noteList.innerHTML = "";
+    req.result
+      .sort((a,b) => b.id - a.id)
+      .forEach(n => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <div class="note-title">${n.title}</div>
+          <div class="note-date">${n.updated || ""}</div>
+        `;
+        li.onclick = () => openNote(n);
+        noteList.appendChild(li);
+      });
   };
 }
 
-// PWA用
+/* 編集で開く */
+function openNote(note) {
+  currentId = note.id;
+  titleInput.value = note.title;
+  contentInput.value = note.content;
+  showEdit();
+}
+
+/* PWA */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js");
 }
 </script>
+
 </body>
 </html>
