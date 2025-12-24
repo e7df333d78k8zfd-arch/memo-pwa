@@ -122,17 +122,23 @@ function restore(id){
 }
 function permanentDelete(id){db.transaction("notes","readwrite").objectStore("notes").delete(id);loadTrash();}
 
-/* ★ 文字化け完全対策エクスポート ★ */
+/* ★ txt / md 最安定（UTF-8 + BOM） */
 function exportNote(){
   const format=prompt("txt / md / json","txt"); if(!format)return;
   const title=(titleInput.value||"無題").replace(/[\\/:*?"<>|]/g,"_");
   const category=categoryInput.value,content=contentInput.value,updated=new Date().toLocaleString();
-  let text="",ext="txt";
-  if(format==="md"){text=`# ${title}\n\n- カテゴリ: ${category}\n- 更新日: ${updated}\n\n---\n\n${content}`;ext="md";}
-  else if(format==="json"){text=JSON.stringify({title,category,content,updated},null,2);ext="json";}
-  else{text=`【${title}】\nカテゴリ: ${category}\n更新日: ${updated}\n\n${content}`;}
-  const bytes=new TextEncoder().encode(text);
-  const blob=new Blob([bytes],{type:"application/octet-stream"});
+  let text="",ext="txt",mime="text/plain";
+  if(format==="md"){
+    text=`# ${title}\n\n- カテゴリ: ${category}\n- 更新日: ${updated}\n\n---\n\n${content}`;
+    ext="md";
+  }else if(format==="json"){
+    text=JSON.stringify({title,category,content,updated},null,2);
+    mime="application/json";ext="json";
+  }else{
+    text=`【${title}】\nカテゴリ: ${category}\n更新日: ${updated}\n\n${content}`;
+  }
+  const bom="\uFEFF";
+  const blob=new Blob([bom+text],{type:mime+";charset=utf-8"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
   a.download=`${title}.${ext}`;
