@@ -4,159 +4,207 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>シンプルメモ</title>
-<link rel="manifest" href="manifest.json">
+
 <style>
 body {
   font-family: system-ui, sans-serif;
   margin: 0;
   padding: 10px;
 }
+
 header {
   display: flex;
-  gap: 5px;
   flex-wrap: wrap;
+  gap: 6px;
 }
-input, select, textarea, button {
-  font-size: 16px;
-}
+
 textarea {
   width: 100%;
   height: 120px;
 }
+
 .memo {
   border: 1px solid #ccc;
   padding: 8px;
-  margin-top: 5px;
+  margin-top: 6px;
 }
-.memo small {
+
+small {
   color: #666;
-}
-.hidden {
-  display: none;
 }
 </style>
 </head>
 <body>
 
+<!-- ===== 上部操作バー ===== -->
 <header>
-  <input id="search" placeholder="検索">
-  <select id="filter">
+  <input id="searchInput" placeholder="検索">
+  <select id="filterSelect">
     <option value="all">すべて</option>
     <option value="メモ">メモ</option>
     <option value="仕事">仕事</option>
     <option value="日記">日記</option>
     <option value="ゴミ箱">ゴミ箱</option>
   </select>
-  <button onclick="backup()">バックアップ</button>
-  <button onclick="restore()">復元</button>
+  <button onclick="backupAll()">バックアップ</button>
+  <button onclick="startRestore()">復元</button>
 </header>
 
 <hr>
 
-<select id="category">
+<!-- ===== 新規メモ入力 ===== -->
+<select id="categorySelect">
   <option value="メモ">メモ</option>
   <option value="仕事">仕事</option>
   <option value="日記">日記</option>
 </select>
-<br><br>
-<textarea id="content" placeholder="メモを書く"></textarea>
-<br>
-<button onclick="addMemo()">保存</button>
 
-<div id="list"></div>
+<textarea id="memoText" placeholder="ここにメモを書く"></textarea>
+<button onclick="saveMemo()">保存</button>
 
-<input type="file" id="fileInput" class="hidden" accept=".json">
+<!-- ===== メモ一覧 ===== -->
+<div id="memoList"></div>
+
+<!-- 復元用（非表示） -->
+<input type="file" id="fileInput" accept=".json" style="display:none;">
 
 <script>
+/* ===============================
+   IndexedDB 初期化
+================================ */
 let db;
-const req = indexedDB.open("memoDB", 1);
+const request = indexedDB.open("memoDB", 1);
 
-req.onupgradeneeded = e => {
+request.onupgradeneeded = function(e) {
   db = e.target.result;
   db.createObjectStore("memos", { keyPath: "id" });
 };
 
-req.onsuccess = e => {
+request.onsuccess = function(e) {
   db = e.target.result;
-  render();
+  loadAndRender();
 };
 
-function addMemo() {
-  const text = content.value.trim();
-  if (!text) return;
+/* ===============================
+   メモ保存
+================================ */
+function saveMemo() {
+  const text = memoText.value.trim();
+  if (text === "") return;
+
   const memo = {
     id: Date.now(),
-    text,
-    category: category.value,
+    text: text,
+    category: categorySelect.value,
     date: new Date().toLocaleString(),
     deleted: false
   };
+
   const tx = db.transaction("memos", "readwrite");
   tx.objectStore("memos").put(memo);
-  content.value = "";
-  render();
+
+  memoText.value = "";
+  loadAndRender();
 }
 
-function render() {
-  const list = document.getElementById("list");
-  list.innerHTML = "";
+/* ===============================
+   一覧表示
+================================ */
+function loadAndRender() {
   const tx = db.transaction("memos", "readonly");
   const store = tx.objectStore("memos");
-  store.getAll().onsuccess = e => {
-    const data = e.target.result;
-    const f = filter.value;
-    const q = search.value;
-    data
-      .filter(m =>
-        (f === "all" ||
-         (f === "ゴミ箱" ? m.deleted : m.category === f && !m.deleted)) &&
-        m.text.includes(q)
-      )
-      .sort((a,b)=>b.id-a.id)
-      .forEach(m => {
-        const d = document.createElement("div");
-        d.className = "memo";
-        d.innerHTML = `
-          <div>${m.text.replace(/\n/g,"<br>")}</div>
-          <small>${m.date} / ${m.category}</small><br>
-          ${m.deleted
-            ? `<button onclick="remove(${m.id})">完全削除</button>`
-            : `<button onclick="trash(${m.id})">ゴミ箱</button>`}
-        `;
-        list.appendChild(d);
-      });
+
+  store.getAll().onsuccess = function(e) {
+    renderList(e.target.result);
   };
 }
 
-function trash(id) {
-  update(id, m => m.deleted = true);
+function renderList(memos) {
+  memoList.innerHTML = "";
+
+  const keyword = searchInput.value;
+  const filter = filterSelect.value;
+
+  memos
+    .filter(m => filterMemo(m, keyword, filter))
+    .sort((a, b) => b.id - a.id)
+    .forEach(m => {
+      memoList.appendChild(createMemoElement(m));
+    });
 }
-function remove(id) {
+
+/* ===============================
+   フィルタ判定
+================================ */
+function filterMemo(memo, keyword, filter) {
+  if (!memo.text.includes(keyword)) return false;
+
+  if (filter === "all") return !memo.deleted;
+  if (filter === "ゴミ箱") return memo.deleted;
+
+  return memo.category === filter && !memo.deleted;
+}
+
+/* ===============================
+   メモ表示HTML
+================================ */
+function createMemoElement(memo) {
+  const div = document.createElement("div");
+  div.className = "memo";
+
+  div.innerHTML = `
+    <div>${memo.text.replace(/\n/g, "<br>")}</div>
+    <small>${memo.date} / ${memo.category}</small><br>
+    ${
+      memo.deleted
+        ? `<button onclick="deleteForever(${memo.id})">完全削除</button>`
+        : `<button onclick="moveToTrash(${memo.id})">ゴミ箱へ</button>`
+    }
+  `;
+
+  return div;
+}
+
+/* ===============================
+   ゴミ箱処理
+================================ */
+function moveToTrash(id) {
+  updateMemo(id, m => m.deleted = true);
+}
+
+function deleteForever(id) {
   const tx = db.transaction("memos", "readwrite");
   tx.objectStore("memos").delete(id);
-  render();
+  loadAndRender();
 }
-function update(id, fn) {
+
+function updateMemo(id, updater) {
   const tx = db.transaction("memos", "readwrite");
   const store = tx.objectStore("memos");
-  store.get(id).onsuccess = e => {
-    const m = e.target.result;
-    fn(m);
-    store.put(m);
-    render();
+
+  store.get(id).onsuccess = function(e) {
+    const memo = e.target.result;
+    updater(memo);
+    store.put(memo);
+    loadAndRender();
   };
 }
 
-search.oninput = filter.onchange = render;
+/* ===============================
+   検索・フィルタ連動
+================================ */
+searchInput.oninput = loadAndRender;
+filterSelect.onchange = loadAndRender;
 
-/* ===== バックアップ ===== */
-function backup() {
+/* ===============================
+   バックアップ
+================================ */
+function backupAll() {
   const tx = db.transaction("memos", "readonly");
-  tx.objectStore("memos").getAll().onsuccess = e => {
-    const blob = new Blob(
-      [JSON.stringify(e.target.result, null, 2)],
-      { type: "application/json" }
-    );
+  tx.objectStore("memos").getAll().onsuccess = function(e) {
+    const json = JSON.stringify(e.target.result, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "memo-backup.json";
@@ -164,21 +212,26 @@ function backup() {
   };
 }
 
-/* ===== 復元 ===== */
-function restore() {
+/* ===============================
+   復元
+================================ */
+function startRestore() {
   fileInput.click();
 }
-fileInput.onchange = e => {
+
+fileInput.onchange = function(e) {
   const file = e.target.files[0];
   if (!file) return;
+
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = function() {
     try {
       const data = JSON.parse(reader.result);
       const tx = db.transaction("memos", "readwrite");
       const store = tx.objectStore("memos");
+
       data.forEach(m => store.put(m));
-      render();
+      loadAndRender();
     } catch {
       alert("復元に失敗しました");
     }
