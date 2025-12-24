@@ -1,224 +1,131 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>メモPWA</title>
-
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#667eea">
-
-<style>
-body {
-  margin: 0;
-  font-family: sans-serif;
-  background: #f5f5f5;
-}
-
-/* スプラッシュ */
-#splash {
-  position: fixed;
-  inset: 0;
-  background: #667eea;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  z-index: 999;
-}
-
-header {
-  position: sticky;
-  top: 0;
-  background: #667eea;
-  color: white;
-  padding: 12px;
-  text-align: center;
-}
-
-.hidden { display: none; }
-
-input, textarea, select, button {
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 8px;
-}
-
-button {
-  border: none;
-  border-radius: 6px;
-}
-
-#listView ul, #trashView ul {
-  list-style: none;
-  padding: 0;
-}
-
-li {
-  background: white;
-  margin: 8px;
-  padding: 12px;
-  border-radius: 8px;
-}
-
-.note-title { font-weight: bold; }
-.note-meta { font-size: 12px; color: #666; }
-
-.fab {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  background: #667eea;
-  color: white;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  font-size: 28px;
-}
-
-.deleteBtn { background: #e74c3c; color: white; }
-.restoreBtn { background: #2ecc71; color: white; }
-.exportBtn { background: #3498db; color: white; }
-</style>
-</head>
-<body>
-
-<div id="splash">📝 メモPWA</div>
-
-<header id="headerTitle">メモ一覧</header>
-
-<!-- 一覧 -->
-<div id="listView">
-  <input id="searchInput" placeholder="検索..." oninput="loadList()">
-
-  <select id="categoryFilter" onchange="loadList()">
-    <option value="">すべてのカテゴリ</option>
-  </select>
-
-  <button onclick="toggleTrash()">🗑 ゴミ箱</button>
-  <ul id="noteList"></ul>
-  <button class="fab" onclick="newNote()">＋</button>
-</div>
-
-<!-- 編集 -->
-<div id="editView" class="hidden">
-  <input id="titleInput" placeholder="タイトル">
-
-  <select id="categoryInput">
-    <option value="仕事">仕事</option>
-    <option value="私用">私用</option>
-    <option value="その他">その他</option>
-  </select>
-
-  <textarea id="contentInput" rows="10" placeholder="内容"></textarea>
-
-  <button onclick="saveNote()">保存</button>
-  <button class="exportBtn" onclick="exportNote()">エクスポート</button>
-  <button class="deleteBtn" onclick="deleteNote()">削除</button>
-  <button onclick="showList()">戻る</button>
-</div>
-
-<!-- ゴミ箱 -->
-<div id="trashView" class="hidden">
-  <ul id="trashList"></ul>
-  <button onclick="toggleTrash()">戻る</button>
-</div>
-
 <script>
-let db;
+/* =========================
+   グローバル変数
+========================= */
+let db = null;
 let currentId = null;
 let trashMode = false;
 
-/* スプラッシュ */
-setTimeout(() => splash.classList.add("hidden"), 800);
-
-/* DB */
+/* =========================
+   IndexedDB 初期化
+========================= */
 const req = indexedDB.open("memoDB", 1);
+
 req.onupgradeneeded = e => {
-  e.target.result.createObjectStore("notes", { keyPath: "id" });
+  const database = e.target.result;
+  if (!database.objectStoreNames.contains("notes")) {
+    database.createObjectStore("notes", { keyPath: "id" });
+  }
 };
+
 req.onsuccess = e => {
   db = e.target.result;
-  loadList();
+
+  // 初期表示
   loadCategories();
+  loadList();
+
+  // ★ DB準備完了後にスプラッシュ解除
+  const splash = document.getElementById("splash");
+  if (splash) splash.classList.add("hidden");
 };
 
-/* 画面切替 */
+req.onerror = () => {
+  alert("データベースの初期化に失敗しました");
+};
+
+/* =========================
+   画面切替
+========================= */
 function showList() {
-  editView.classList.add("hidden");
-  trashView.classList.add("hidden");
-  listView.classList.remove("hidden");
-  headerTitle.textContent = "メモ一覧";
+  document.getElementById("editView").classList.add("hidden");
+  document.getElementById("trashView").classList.add("hidden");
+  document.getElementById("listView").classList.remove("hidden");
+  document.getElementById("headerTitle").textContent = "メモ一覧";
+  trashMode = false;
   loadList();
 }
 
 function showEdit() {
-  listView.classList.add("hidden");
-  trashView.classList.add("hidden");
-  editView.classList.remove("hidden");
-  headerTitle.textContent = "編集";
+  document.getElementById("listView").classList.add("hidden");
+  document.getElementById("trashView").classList.add("hidden");
+  document.getElementById("editView").classList.remove("hidden");
+  document.getElementById("headerTitle").textContent = "編集";
 }
 
 function toggleTrash() {
   trashMode = !trashMode;
-  listView.classList.toggle("hidden");
-  trashView.classList.toggle("hidden");
-  headerTitle.textContent = trashMode ? "ゴミ箱" : "メモ一覧";
+  document.getElementById("listView").classList.toggle("hidden");
+  document.getElementById("trashView").classList.toggle("hidden");
+  document.getElementById("headerTitle").textContent = trashMode ? "ゴミ箱" : "メモ一覧";
   if (trashMode) loadTrash();
 }
 
-/* 新規 */
+/* =========================
+   新規メモ
+========================= */
 function newNote() {
   currentId = Date.now();
-  titleInput.value = "";
-  contentInput.value = "";
-  categoryInput.value = "その他";
+  document.getElementById("titleInput").value = "";
+  document.getElementById("contentInput").value = "";
+  document.getElementById("categoryInput").value = "その他";
   showEdit();
 }
 
-/* 保存 */
+/* =========================
+   保存
+========================= */
 function saveNote() {
-  db.transaction("notes", "readwrite")
-    .objectStore("notes")
-    .put({
-      id: currentId,
-      title: titleInput.value || "（無題）",
-      content: contentInput.value,
-      category: categoryInput.value,
-      updated: new Date().toLocaleString(),
-      deleted: false
-    });
+  const note = {
+    id: currentId,
+    title: titleInput.value || "（無題）",
+    content: contentInput.value,
+    category: categoryInput.value || "その他",
+    updated: new Date().toLocaleString(),
+    deleted: false
+  };
+
+  const tx = db.transaction("notes", "readwrite");
+  tx.objectStore("notes").put(note);
   showList();
 }
 
-/* 削除 */
+/* =========================
+   削除（ゴミ箱）
+========================= */
 function deleteNote() {
   const tx = db.transaction("notes", "readwrite");
   const store = tx.objectStore("notes");
   store.get(currentId).onsuccess = e => {
     const note = e.target.result;
+    if (!note) return;
     note.deleted = true;
     store.put(note);
     showList();
   };
 }
 
-/* 一覧＋検索＋カテゴリ */
+/* =========================
+   一覧表示（検索・カテゴリ）
+========================= */
 function loadList() {
   if (trashMode) return;
-  const key = searchInput.value || "";
-  const cat = categoryFilter.value;
 
-  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
-    noteList.innerHTML = "";
+  const keyword = document.getElementById("searchInput").value || "";
+  const cat = document.getElementById("categoryFilter").value || "";
+
+  const tx = db.transaction("notes", "readonly");
+  tx.objectStore("notes").getAll().onsuccess = e => {
+    const list = document.getElementById("noteList");
+    list.innerHTML = "";
+
     e.target.result
       .filter(n => !n.deleted)
       .filter(n =>
         (!cat || n.category === cat) &&
-        (n.title.includes(key) || n.content.includes(key))
+        (n.title.includes(keyword) || n.content.includes(keyword))
       )
-      .sort((a,b) => b.id - a.id)
+      .sort((a, b) => b.id - a.id)
       .forEach(n => {
         const li = document.createElement("li");
         li.innerHTML = `
@@ -226,47 +133,66 @@ function loadList() {
           <div class="note-meta">${n.category} / ${n.updated}</div>
         `;
         li.onclick = () => openNote(n);
-        noteList.appendChild(li);
+        list.appendChild(li);
       });
   };
 }
 
-/* 編集で開く */
-function openNote(n) {
-  currentId = n.id;
-  titleInput.value = n.title;
-  contentInput.value = n.content;
-  categoryInput.value = n.category || "その他";
+/* =========================
+   編集で開く
+========================= */
+function openNote(note) {
+  currentId = note.id;
+  titleInput.value = note.title;
+  contentInput.value = note.content;
+  categoryInput.value = note.category || "その他";
   showEdit();
 }
 
-/* カテゴリ一覧 */
+/* =========================
+   カテゴリ一覧
+========================= */
 function loadCategories() {
-  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
-    const cats = [...new Set(e.target.result.map(n => n.category).filter(Boolean))];
-    categoryFilter.innerHTML = '<option value="">すべてのカテゴリ</option>';
+  const tx = db.transaction("notes", "readonly");
+  tx.objectStore("notes").getAll().onsuccess = e => {
+    const filter = document.getElementById("categoryFilter");
+    filter.innerHTML = '<option value="">すべてのカテゴリ</option>';
+
+    const cats = [...new Set(
+      e.target.result
+        .filter(n => !n.deleted)
+        .map(n => n.category)
+    )];
+
     cats.forEach(c => {
-      const o = document.createElement("option");
-      o.value = c;
-      o.textContent = c;
-      categoryFilter.appendChild(o);
+      const opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c;
+      filter.appendChild(opt);
     });
   };
 }
 
-/* ゴミ箱 */
+/* =========================
+   ゴミ箱
+========================= */
 function loadTrash() {
-  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
-    trashList.innerHTML = "";
-    e.target.result.filter(n => n.deleted).forEach(n => {
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <div class="note-title">${n.title}</div>
-        <button class="restoreBtn" onclick="restore(${n.id})">復元</button>
-        <button class="deleteBtn" onclick="permanentDelete(${n.id})">完全削除</button>
-      `;
-      trashList.appendChild(li);
-    });
+  const tx = db.transaction("notes", "readonly");
+  tx.objectStore("notes").getAll().onsuccess = e => {
+    const list = document.getElementById("trashList");
+    list.innerHTML = "";
+
+    e.target.result
+      .filter(n => n.deleted)
+      .forEach(n => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <div class="note-title">${n.title}</div>
+          <button onclick="restore(${n.id})">復元</button>
+          <button onclick="permanentDelete(${n.id})">完全削除</button>
+        `;
+        list.appendChild(li);
+      });
   };
 }
 
@@ -275,6 +201,7 @@ function restore(id) {
   const store = tx.objectStore("notes");
   store.get(id).onsuccess = e => {
     const n = e.target.result;
+    if (!n) return;
     n.deleted = false;
     store.put(n);
     loadTrash();
@@ -282,11 +209,15 @@ function restore(id) {
 }
 
 function permanentDelete(id) {
-  db.transaction("notes", "readwrite").objectStore("notes").delete(id);
+  db.transaction("notes", "readwrite")
+    .objectStore("notes")
+    .delete(id);
   loadTrash();
 }
 
-/* エクスポート（1メモ1ファイル） */
+/* =========================
+   エクスポート（1メモ1ファイル）
+========================= */
 function exportNote() {
   const data = {
     title: titleInput.value,
@@ -294,18 +225,22 @@ function exportNote() {
     content: contentInput.value,
     updated: new Date().toISOString()
   };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+
+  const blob = new Blob(
+    [JSON.stringify(data, null, 2)],
+    { type: "application/json" }
+  );
+
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = (data.title || "memo") + ".json";
   a.click();
 }
 
-/* PWA */
+/* =========================
+   PWA
+========================= */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js");
 }
 </script>
-
-</body>
-</html>
