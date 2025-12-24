@@ -184,7 +184,7 @@ function deleteNote() {
   };
 }
 
-/* 一覧（カテゴリ統一ロジック） */
+/* 一覧 */
 function loadList() {
   const keyword = searchInput.value || "";
   const filterCat = categoryFilter.value || "";
@@ -194,10 +194,7 @@ function loadList() {
 
     e.target.result
       .filter(n => !n.deleted)
-      .map(n => ({
-        ...n,
-        category: n.category || "その他"
-      }))
+      .map(n => ({ ...n, category: n.category || "その他" }))
       .filter(n =>
         (!filterCat || n.category === filterCat) &&
         (n.title.includes(keyword) || n.content.includes(keyword))
@@ -256,18 +253,57 @@ function permanentDelete(id) {
   loadTrash();
 }
 
-/* エクスポート */
+/* エクスポート（TXT / MD / JSON） */
 function exportNote() {
-  const data = {
-    title: titleInput.value,
-    category: categoryInput.value,
-    content: contentInput.value,
-    updated: new Date().toISOString()
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const format = prompt(
+    "エクスポート形式を入力してください\n\n" +
+    "txt  : テキスト\n" +
+    "md   : Markdown\n" +
+    "json : JSON",
+    "txt"
+  );
+  if (!format) return;
+
+  const title = titleInput.value || "無題";
+  const category = categoryInput.value || "その他";
+  const content = contentInput.value || "";
+  const updated = new Date().toLocaleString();
+
+  let text = "";
+  let mime = "text/plain";
+  let ext = "txt";
+
+  if (format === "md") {
+    text =
+`# ${title}
+
+- カテゴリ: ${category}
+- 更新日: ${updated}
+
+---
+
+${content}
+`;
+    ext = "md";
+  } else if (format === "json") {
+    text = JSON.stringify({ title, category, content, updated }, null, 2);
+    mime = "application/json";
+    ext = "json";
+  } else {
+    text =
+`【${title}】
+カテゴリ: ${category}
+更新日: ${updated}
+
+${content}
+`;
+    ext = "txt";
+  }
+
+  const blob = new Blob([text], { type: mime });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = (data.title || "memo") + ".json";
+  a.download = `${title}.${ext}`;
   a.click();
 }
 
