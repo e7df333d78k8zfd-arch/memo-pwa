@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>メモPWA</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#667eea">
+<style>
+body {
+  font-family: sans-serif;
+  margin: 0;
+  padding: 16px;
+}
+input, textarea, button {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px;
+}
+button {
+  background: #667eea;
+  color: #fff;
+  border: none;
+}
+</style>
+</head>
+<body>
+
+<h2>📝 メモ</h2>
+<input id="title" placeholder="タイトル">
+<textarea id="content" rows="8" placeholder="内容"></textarea>
+<button onclick="save()">保存</button>
+
+<ul id="list"></ul>
+
+<script>
+let db;
+
+const req = indexedDB.open("memoDB", 1);
+req.onupgradeneeded = e => {
+  db = e.target.result;
+  db.createObjectStore("notes", { keyPath: "id" });
+};
+req.onsuccess = e => {
+  db = e.target.result;
+  load();
+};
+
+function save() {
+  const tx = db.transaction("notes", "readwrite");
+  const store = tx.objectStore("notes");
+  store.put({
+    id: Date.now(),
+    title: title.value,
+    content: content.value
+  });
+  title.value = "";
+  content.value = "";
+  load();
+}
+
+function load() {
+  const tx = db.transaction("notes", "readonly");
+  const store = tx.objectStore("notes");
+  const req = store.getAll();
+  req.onsuccess = () => {
+    list.innerHTML = req.result.map(n =>
+      `<li>${n.title}</li>`
+    ).join("");
+  };
+}
+
+// PWA用
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}
+</script>
+</body>
+</html>
