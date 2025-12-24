@@ -25,7 +25,6 @@ header {
   color: white;
   padding: 12px;
   text-align: center;
-  z-index: 10;
 }
 
 .hidden { display: none; }
@@ -34,21 +33,19 @@ input, textarea, select, button {
   width: 100%;
   padding: 10px;
   margin-bottom: 8px;
-  box-sizing: border-box;
   font-size: 16px;
+  box-sizing: border-box;
 }
 
 button {
   border: none;
   border-radius: 6px;
-  cursor: pointer;
 }
 
 ul {
   list-style: none;
   padding: 0;
   margin: 0;
-  overflow-y: auto;
 }
 
 li {
@@ -66,53 +63,34 @@ li {
   position: fixed;
   bottom: 20px;
   right: 20px;
-  background: #667eea;
-  color: white;
   width: 56px;
   height: 56px;
   border-radius: 50%;
+  background: #667eea;
+  color: white;
   font-size: 28px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
 
 .deleteBtn { background: #e74c3c; color: white; }
-.restoreBtn { background: #2ecc71; color: white; }
 .exportBtn { background: #3498db; color: white; }
 .backupBtn { background: #8e44ad; color: white; }
-
-#noteList, #trashList {
-  max-height: calc(100vh - 180px);
-  overflow-y: auto;
-  padding-bottom: 80px;
-}
+.restoreBtn { background: #2ecc71; color: white; }
 
 #editView {
+  padding: 12px;
   display: flex;
   flex-direction: column;
   height: calc(100vh - 48px);
-  padding: 12px;
-  box-sizing: border-box;
 }
 
 #contentInput {
   flex: 1;
-  min-height: 200px;
   resize: vertical;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #ccc;
 }
 
 #editButtons {
   display: flex;
   gap: 8px;
-  position: sticky;
-  bottom: 0;
-  background: #f5f5f5;
-  padding: 8px 0;
 }
 </style>
 </head>
@@ -120,6 +98,7 @@ li {
 
 <header id="headerTitle">メモ一覧</header>
 
+<!-- 一覧 -->
 <div id="listView">
   <input id="searchInput" placeholder="検索" oninput="loadList()">
 
@@ -132,12 +111,12 @@ li {
 
   <button class="backupBtn" onclick="backupAll()">📦 バックアップ</button>
   <button class="backupBtn" onclick="restoreAll()">📥 復元</button>
-  <button onclick="showTrash()">🗑 ゴミ箱</button>
 
   <ul id="noteList"></ul>
   <button class="fab" onclick="newNote()">＋</button>
 </div>
 
+<!-- 編集 -->
 <div id="editView" class="hidden">
   <input id="titleInput" placeholder="タイトル">
   <select id="categoryInput">
@@ -155,28 +134,18 @@ li {
   </div>
 </div>
 
-<div id="trashView" class="hidden">
-  <ul id="trashList"></ul>
-  <button onclick="showList()">戻る</button>
-</div>
-
-<!-- 表示されない復元用 input（重要） -->
-<input
-  type="file"
-  id="backupInput"
-  accept=".json"
-  style="display:none"
-/>
+<!-- 表示されない復元用 -->
+<input type="file" id="backupInput" accept=".json" style="display:none">
 
 <script>
 let db;
 let currentId = null;
 
+/* DB */
 const request = indexedDB.open("memoDB", 1);
 
 request.onupgradeneeded = e => {
-  const db = e.target.result;
-  db.createObjectStore("notes", { keyPath: "id" });
+  e.target.result.createObjectStore("notes", { keyPath: "id" });
 };
 
 request.onsuccess = e => {
@@ -184,8 +153,118 @@ request.onsuccess = e => {
   loadList();
 };
 
+/* 画面 */
+function showList() {
+  currentId = null;               // ★重要：一覧に戻る時にリセット
+  editView.classList.add("hidden");
+  listView.classList.remove("hidden");
+  headerTitle.textContent = "メモ一覧";
+  loadList();
+}
+
+function showEdit() {
+  listView.classList.add("hidden");
+  editView.classList.remove("hidden");
+  headerTitle.textContent = "編集";
+}
+
+/* 新規 */
+function newNote() {
+  currentId = Date.now();         // ★新規は＋のみ
+  titleInput.value = "";
+  contentInput.value = "";
+  categoryInput.value = "その他";
+  showEdit();
+}
+
+/* 保存 */
+function saveNote() {
+  if (!currentId) return;         // ★＋を押してない保存は禁止
+
+  const note = {
+    id: currentId,
+    title: titleInput.value || "（無題）",
+    content: contentInput.value,
+    category: categoryInput.value,
+    updated: new Date().toLocaleString()
+  };
+
+  db.transaction("notes", "readwrite")
+    .objectStore("notes")
+    .put(note);
+
+  showList();
+}
+
+/* 削除 */
+function deleteNote() {
+  if (!currentId) return;
+  db.transaction("notes", "readwrite")
+    .objectStore("notes")
+    .delete(currentId);
+  showList();
+}
+
+/* 一覧 */
+function loadList() {
+  const kw = searchInput.value || "";
+  const cat = categoryFilter.value || "";
+
+  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
+    noteList.innerHTML = "";
+    e.target.result
+      .filter(n =>
+        (!cat || n.category === cat) &&
+        (n.title.includes(kw) || n.content.includes(kw))
+      )
+      .sort((a,b) => b.id - a.id)
+      .forEach(n => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <div class="note-title">${n.title}</div>
+          <div class="note-meta">${n.category} / ${n.updated}</div>
+        `;
+        li.onclick = () => openNote(n);
+        noteList.appendChild(li);
+      });
+  };
+}
+
+/* 編集 */
+function openNote(n) {
+  currentId = n.id;               // ★既存ID維持
+  titleInput.value = n.title;
+  contentInput.value = n.content;
+  categoryInput.value = n.category;
+  showEdit();
+}
+
+/* エクスポート */
+function exportNote() {
+  const text = titleInput.value + "\n\n" + contentInput.value;
+  const blob = new Blob(["\uFEFF" + text], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "memo.txt";
+  a.click();
+}
+
+/* バックアップ */
+function backupAll() {
+  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
+    const blob = new Blob([JSON.stringify(e.target.result, null, 2)], {
+      type: "application/json;charset=utf-8"
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "memo-backup.json";
+    a.click();
+  };
+}
+
+/* 復元 */
 function restoreAll() {
-  document.getElementById("backupInput").click();
+  backupInput.click();
 }
 
 backupInput.onchange = e => {
@@ -202,7 +281,10 @@ backupInput.onchange = e => {
   reader.readAsText(file);
 };
 
-/* 以下ロジックは変更なし */
+/* PWA */
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}
 </script>
 
 </body>
