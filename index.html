@@ -62,12 +62,12 @@ li {
 .exportBtn { background: #3498db; color: white; }
 .backupBtn { background: #8e44ad; color: white; }
 
-  #contentInput {
-  min-height: 60vh;   /* 画面の60% */
+#contentInput {
+  min-height: 60vh;
 }
-
 </style>
 </head>
+
 <body>
 
 <header id="headerTitle">メモ一覧</header>
@@ -84,7 +84,7 @@ li {
   </select>
 
   <button onclick="showTrash()">🗑 ゴミ箱</button>
-  <button class="backupBtn" onclick="backupNotes()">📦 バックアップ</button>
+  <button class="backupBtn" onclick="backupNotes()">📦 手動バックアップ</button>
   <button onclick="document.getElementById('restoreFile').click()">🔁 復元</button>
   <input type="file" id="restoreFile" class="hidden" accept=".json" onchange="restoreNotes(this.files[0])">
 
@@ -102,7 +102,7 @@ li {
     <option value="その他">その他</option>
   </select>
 
-  <textarea id="contentInput" rows="10" placeholder="内容"></textarea>
+  <textarea id="contentInput" placeholder="内容"></textarea>
 
   <button onclick="saveNote()">保存</button>
   <button class="exportBtn" onclick="exportNote()">エクスポート</button>
@@ -119,6 +119,10 @@ li {
 <script>
 let db;
 let currentId = null;
+
+/* ===== 自動バックアップ制御 ===== */
+let autoBackupCounter = 0;
+const AUTO_BACKUP_INTERVAL = 10;
 
 /* IndexedDB */
 const request = indexedDB.open("memoDB", 1);
@@ -178,7 +182,9 @@ function saveNote() {
     updated: new Date().toLocaleString(),
     deleted: false
   };
+
   db.transaction("notes", "readwrite").objectStore("notes").put(note);
+  autoBackupIfNeeded();
   showList();
 }
 
@@ -247,8 +253,7 @@ function loadTrash() {
 }
 
 function restore(id) {
-  const tx = db.transaction("notes", "readwrite");
-  const store = tx.objectStore("notes");
+  const store = db.transaction("notes", "readwrite").objectStore("notes");
   store.get(id).onsuccess = e => {
     const n = e.target.result;
     n.deleted = false;
@@ -262,19 +267,39 @@ function permanentDelete(id) {
   loadTrash();
 }
 
-/* ===== バックアップ（BOM付き） ===== */
+/* ===== 手動バックアップ ===== */
 function backupNotes() {
   db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
-    const bom = "\uFEFF";
-    const text = JSON.stringify(e.target.result, null, 2);
-    const blob = new Blob([bom + text], {
-      type: "application/json;charset=utf-8"
-    });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `memo_backup_${Date.now()}.json`;
-    a.click();
+    downloadJSON(e.target.result, "memo_backup_manual");
   };
+}
+
+/* ===== 自動バックアップ ===== */
+function autoBackupIfNeeded() {
+  autoBackupCounter++;
+  if (autoBackupCounter >= AUTO_BACKUP_INTERVAL) {
+    autoBackupCounter = 0;
+    silentBackup();
+  }
+}
+
+function silentBackup() {
+  if (!db) return;
+  db.transaction("notes").objectStore("notes").getAll().onsuccess = e => {
+    downloadJSON(e.target.result, "memo_auto_backup");
+  };
+}
+
+function downloadJSON(data, prefix) {
+  const bom = "\uFEFF";
+  const text = JSON.stringify(data, null, 2);
+  const blob = new Blob([bom + text], {
+    type: "application/json;charset=utf-8"
+  });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${prefix}_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
 }
 
 /* ===== 復元 ===== */
@@ -294,41 +319,24 @@ function restoreNotes(file) {
   reader.readAsText(file);
 }
 
-/* ===== エクスポート（文字化け対策済み） ===== */
+/* ===== エクスポート ===== */
 function exportNote() {
-  const format = prompt("txt / md / json", "txt");
-  if (!format) return;
-
   const title = titleInput.value || "無題";
-  const category = categoryInput.value || "その他";
   const content = contentInput.value || "";
-  const updated = new Date().toLocaleString();
-
-  let text = "";
-  let mime = "text/plain";
-  let ext = "txt";
-
-  if (format === "md") {
-    text = `# ${title}\n\n- カテゴリ: ${category}\n- 更新日: ${updated}\n\n---\n\n${content}`;
-    ext = "md";
-  } else if (format === "json") {
-    text = JSON.stringify({ title, category, content, updated }, null, 2);
-    mime = "application/json";
-    ext = "json";
-  } else {
-    text = `【${title}】\nカテゴリ: ${category}\n更新日: ${updated}\n\n${content}`;
-  }
-
-  const bom = "\uFEFF";
-  const blob = new Blob([bom + text], {
-    type: mime + ";charset=utf-8"
-  });
-
+  const text = `【${title}】\n\n${content}`;
+  const blob = new Blob(["\uFEFF" + text], { type: "text/plain;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${title}.${ext}`;
+  a.download = `${title}.txt`;
   a.click();
 }
+
+/* ===== アプリ離脱時バックアップ ===== */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    silentBackup();
+  }
+});
 
 /* PWA */
 if ("serviceWorker" in navigator) {
