@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>メモPWA（SQLite永続版）</title>
+<title>メモPWA（SQLite永続・復元対応）</title>
 
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#667eea">
@@ -20,8 +20,12 @@ ul { list-style:none; padding:0; }
 li { background:#fff; margin:8px; padding:12px; border-radius:8px; }
 .note-title { font-weight:bold; }
 .note-meta { font-size:12px; color:#666; }
-.fab { position:fixed; bottom:20px; right:20px; background:#667eea; color:#fff;
-  width:56px; height:56px; border-radius:50%; font-size:28px; }
+.fab {
+  position:fixed; bottom:20px; right:20px;
+  background:#667eea; color:#fff;
+  width:56px; height:56px;
+  border-radius:50%; font-size:28px;
+}
 .deleteBtn { background:#e74c3c; color:#fff; }
 .restoreBtn { background:#2ecc71; color:#fff; }
 .backupBtn { background:#8e44ad; color:#fff; }
@@ -33,6 +37,7 @@ li { background:#fff; margin:8px; padding:12px; border-radius:8px; }
 
 <header id="headerTitle">メモ一覧</header>
 
+<!-- 一覧 -->
 <div id="listView">
   <input id="searchInput" placeholder="検索" oninput="loadList()">
 
@@ -45,11 +50,14 @@ li { background:#fff; margin:8px; padding:12px; border-radius:8px; }
 
   <button onclick="showTrash()">🗑 ゴミ箱</button>
   <button class="backupBtn" onclick="downloadDB()">📦 DBバックアップ</button>
+  <button onclick="document.getElementById('restoreFile').click()">🔁 DB復元</button>
+  <input type="file" id="restoreFile" class="hidden" accept=".db" onchange="restoreDB(this.files[0])">
 
   <ul id="noteList"></ul>
   <button class="fab" onclick="newNote()">＋</button>
 </div>
 
+<!-- 編集 -->
 <div id="editView" class="hidden">
   <input id="titleInput" placeholder="タイトル">
   <select id="categoryInput">
@@ -64,6 +72,7 @@ li { background:#fff; margin:8px; padding:12px; border-radius:8px; }
   <button onclick="showList()">戻る</button>
 </div>
 
+<!-- ゴミ箱 -->
 <div id="trashView" class="hidden">
   <ul id="trashList"></ul>
   <button onclick="showList()">戻る</button>
@@ -74,7 +83,7 @@ let SQL, db;
 let currentId = null;
 const DB_KEY = "memo-sqlite-db";
 
-/* ===== IndexedDB（SQLiteファイル保存用） ===== */
+/* ===== IndexedDB（SQLiteファイル保存庫） ===== */
 function openStore() {
   return new Promise(res => {
     const r = indexedDB.open("sqlite-store", 1);
@@ -95,13 +104,13 @@ async function loadDBFile() {
 async function saveDBFile() {
   const data = db.export();
   const idb = await openStore();
-  const tx = idb.transaction("files","readwrite");
+  const tx = idb.transaction("files", "readwrite");
   tx.objectStore("files").put(data, DB_KEY);
 }
 
 /* ===== SQLite 初期化 ===== */
-initSqlJs({ locateFile: f =>
-  `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}`
+initSqlJs({
+  locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}`
 }).then(async lib => {
   SQL = lib;
   const saved = await loadDBFile();
@@ -115,7 +124,7 @@ initSqlJs({ locateFile: f =>
       category TEXT,
       updated TEXT,
       deleted INTEGER
-    );
+    )
   `);
 
   loadList();
@@ -155,9 +164,13 @@ function newNote() {
 function saveNote() {
   db.run(
     `INSERT OR REPLACE INTO notes VALUES (?,?,?,?,?,0)`,
-    [currentId, titleInput.value||"（無題）",
-     contentInput.value, categoryInput.value,
-     new Date().toLocaleString()]
+    [
+      currentId,
+      titleInput.value || "（無題）",
+      contentInput.value,
+      categoryInput.value,
+      new Date().toLocaleString()
+    ]
   );
   saveDBFile();
   showList();
@@ -172,26 +185,28 @@ function deleteNote() {
 /* ===== 一覧 ===== */
 function loadList() {
   noteList.innerHTML = "";
-  const keyword = searchInput.value||"";
-  const cat = categoryFilter.value||"";
+  const keyword = searchInput.value || "";
+  const cat = categoryFilter.value || "";
   const res = db.exec(`SELECT * FROM notes WHERE deleted=0 ORDER BY id DESC`);
   if (!res[0]) return;
 
   res[0].values.forEach(r => {
-    const [id,title,content,category,updated] = r;
-    if ((cat && category!==cat) ||
+    const [id, title, content, category, updated] = r;
+    if ((cat && category !== cat) ||
         (!title.includes(keyword) && !content.includes(keyword))) return;
+
     const li = document.createElement("li");
-    li.innerHTML = `<div class="note-title">${title}</div>
-                    <div class="note-meta">${category} / ${updated}</div>`;
+    li.innerHTML = `
+      <div class="note-title">${title}</div>
+      <div class="note-meta">${category} / ${updated}</div>
+    `;
     li.onclick = () => openNote(r);
     noteList.appendChild(li);
   });
 }
 
 function openNote(r) {
-  [currentId,titleInput.value,
-   contentInput.value,categoryInput.value] = r;
+  [currentId, titleInput.value, contentInput.value, categoryInput.value] = r;
   showEdit();
 }
 
@@ -200,12 +215,14 @@ function loadTrash() {
   trashList.innerHTML = "";
   const res = db.exec(`SELECT * FROM notes WHERE deleted=1`);
   if (!res[0]) return;
+
   res[0].values.forEach(r => {
     const li = document.createElement("li");
     li.innerHTML = `
       <div class="note-title">${r[1]}</div>
       <button class="restoreBtn" onclick="restore(${r[0]})">復元</button>
-      <button class="deleteBtn" onclick="permanentDelete(${r[0]})">完全削除</button>`;
+      <button class="deleteBtn" onclick="permanentDelete(${r[0]})">完全削除</button>
+    `;
     trashList.appendChild(li);
   });
 }
@@ -224,11 +241,26 @@ function permanentDelete(id) {
 
 /* ===== DBバックアップ ===== */
 function downloadDB() {
-  const blob = new Blob([db.export()]);
+  const blob = new Blob([db.export()], { type: "application/octet-stream" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "memo.db";
   a.click();
+}
+
+/* ===== DB復元 ===== */
+async function restoreDB(file) {
+  if (!file) return;
+  if (!confirm("現在のデータはすべて上書きされます。復元しますか？")) return;
+
+  const buf = await file.arrayBuffer();
+  const data = new Uint8Array(buf);
+
+  db.close();
+  db = new SQL.Database(data);
+
+  await saveDBFile();
+  showList();
 }
 </script>
 
